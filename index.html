@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>都道府県クイズ 2分チャレンジ</title>
+<style>
+:root{--bg:#eaf6ff;--ink:#23303b;--card:#fff;--accent:#1f7ae0;--ok:#2fb344;--ng:#e5484d;--land:#cfe6bd;--line:#fff}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%}
+body{background:var(--bg);color:var(--ink);font-family:"Hiragino Maru Gothic ProN","Yu Gothic","Meiryo",sans-serif;touch-action:manipulation;overscroll-behavior:none;display:flex;justify-content:center}
+#app{width:100%;max-width:560px;height:100dvh;display:flex;flex-direction:column;padding:max(8px,env(safe-area-inset-top)) 10px max(10px,env(safe-area-inset-bottom))}
+.screen{display:none;flex:1;min-height:0;flex-direction:column}
+.screen.on{display:flex}
+/* start / end */
+.center{align-items:center;justify-content:center;text-align:center;gap:14px}
+h1{margin:0;font-size:28px;line-height:1.3}
+.rules{background:var(--card);border-radius:14px;padding:14px 18px;text-align:left;font-size:15px;line-height:1.8;box-shadow:0 2px 8px #0001}
+.big{font-size:64px;font-weight:800;color:var(--accent)}
+button{font:inherit;color:inherit}
+.btn{border:0;border-radius:14px;background:var(--accent);color:#fff;font-size:20px;font-weight:700;padding:14px 40px;box-shadow:0 3px 0 #14509b}
+.btn:active{transform:translateY(2px);box-shadow:0 1px 0 #14509b}
+/* hud */
+.hud{display:flex;gap:8px;align-items:stretch}
+.box{flex:1;background:var(--card);border-radius:12px;padding:4px 8px;text-align:center;box-shadow:0 2px 6px #0001}
+.box small{display:block;font-size:11px;color:#667}
+.box b{font-size:26px;font-variant-numeric:tabular-nums}
+.box.low b{color:var(--ng)}
+#mute{flex:0 0 52px;border:0;border-radius:12px;background:var(--card);font-size:22px;box-shadow:0 2px 6px #0001}
+/* map */
+#mapwrap{flex:1;min-height:0;margin:6px 0;background:#d6ecff;border-radius:14px;overflow:hidden}
+#map{width:100%;height:100%;display:block}
+#map path{fill:var(--land);stroke:var(--line);stroke-width:2;stroke-linejoin:round}
+#map path.target{fill:#fff3a8;stroke:#e8a400;stroke-width:3}
+#map path.glow{animation:glow .7s ease-in-out infinite alternate;stroke:#ff8a00;stroke-width:4}
+@keyframes glow{from{fill:#fff3a8}to{fill:#ff9d1c}}
+/* question */
+#qtext{text-align:center;font-size:19px;font-weight:700;min-height:28px;margin-bottom:6px}
+#qtext span{color:var(--accent)}
+#choices{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.choice{border:0;border-radius:14px;background:var(--card);font-size:20px;font-weight:700;min-height:58px;padding:6px;box-shadow:0 3px 0 #b8c6d3}
+.choice:active{transform:translateY(2px);box-shadow:0 1px 0 #b8c6d3}
+.choice.ok{background:var(--ok);color:#fff}
+.choice.ng{background:var(--ng);color:#fff}
+#fb{text-align:center;font-weight:800;font-size:18px;height:26px;margin-top:6px}
+#fb.ok{color:var(--ok)}
+#fb.ng{color:var(--ng)}
+</style>
+</head>
+<body>
+<div id="app">
+
+  <section id="s-start" class="screen center on">
+    <h1>🗾 都道府県クイズ<br>2分チャレンジ</h1>
+    <div class="rules">
+      ① 光った都道府県を4択で当てる<br>
+      ② つづけて、その県庁所在地を4択で当てる<br>
+      ・正解 <b>+1</b> / まちがい <b>−1</b><br>
+      ・制限時間は <b>2分</b>
+    </div>
+    <button class="btn" id="start">スタート</button>
+    <small>🔊 音が出ます(マナーモードを確認してね)</small>
+  </section>
+
+  <section id="s-game" class="screen">
+    <div class="hud">
+      <div class="box" id="tbox"><small>のこり時間</small><b id="time">2:00</b></div>
+      <div class="box"><small>ポイント</small><b id="score">0</b></div>
+      <button id="mute" aria-label="音の切り替え">🔊</button>
+    </div>
+    <div id="mapwrap"><svg id="map" xmlns="http://www.w3.org/2000/svg"></svg></div>
+    <div id="qtext"></div>
+    <div id="choices"></div>
+    <div id="fb"></div>
+  </section>
+
+  <section id="s-end" class="screen center">
+    <h1>⏱ タイムアップ!</h1>
+    <div>2分間のポイント</div>
+    <div class="big" id="final">0</div>
+    <div id="detail"></div>
+    <button class="btn" id="retry">もう一度</button>
+  </section>
+
+</div>
+<script src="map-data.js"></script>
+<script>
+(()=>{
+const $=id=>document.getElementById(id);
+const GAME_SEC=120, NS='http://www.w3.org/2000/svg';
+const capLabel=p=>p.cap==='新宿区'?'東京(新宿区)':p.cap;
+
+/* ---------- 音(WebAudio で合成) ---------- */
+const Sound=(()=>{
+  let ctx,master,muted=false,timer=null,next=0,step=0;
+  const MEL=[72,76,79,76,74,76,72,0, 74,79,81,79,76,74,72,0, 79,81,79,76,74,76,74,72, 76,74,72,74,76,79,76,0];
+  const BAS=[48,0,0,0,43,0,0,0, 45,0,0,0,40,0,0,0, 48,0,0,0,43,0,0,0, 43,0,0,0,48,0,0,0];
+  const STEP=0.2;
+  const hz=m=>440*Math.pow(2,(m-69)/12);
+  function tone(t,f,dur,type,vol,f2){
+    const o=ctx.createOscillator(),g=ctx.createGain();
+    o.type=type;o.frequency.setValueAtTime(f,t);
+    if(f2)o.frequency.exponentialRampToValueAtTime(f2,t+dur);
+    g.gain.setValueAtTime(0.0001,t);
+    g.gain.exponentialRampToValueAtTime(vol,t+0.015);
+    g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+    o.connect(g);g.connect(master);o.start(t);o.stop(t+dur+0.02);
+  }
+  function sched(){
+    while(next<ctx.currentTime+0.4){
+      const i=step%MEL.length;
+      if(MEL[i])tone(next,hz(MEL[i]),STEP*1.6,'triangle',0.16);
+      if(BAS[i])tone(next,hz(BAS[i]),STEP*3.6,'sine',0.22);
+      next+=STEP;step++;
+    }
+  }
+  return{
+    init(){
+      if(!ctx){
+        const AC=window.AudioContext||window.webkitAudioContext;
+        if(!AC)return;
+        ctx=new AC();master=ctx.createGain();master.gain.value=muted?0:0.5;master.connect(ctx.destination);
+      }
+      if(ctx.state==='suspended')ctx.resume();
+    },
+    bgm(on){
+      if(!ctx)return;
+      clearInterval(timer);timer=null;
+      if(on){step=0;next=ctx.currentTime+0.1;sched();timer=setInterval(sched,100)}
+    },
+    ok(){if(!ctx)return;const t=ctx.currentTime;tone(t,880,0.18,'sine',0.5);tone(t+0.11,1318,0.4,'sine',0.5)},
+    ng(){if(!ctx)return;const t=ctx.currentTime;tone(t,220,0.35,'sawtooth',0.3,110);tone(t+0.02,164,0.35,'square',0.18,82)},
+    setMuted(m){muted=m;if(master)master.gain.value=m?0:0.5},
+    get muted(){return muted},
+    suspend(s){if(ctx){s?ctx.suspend():ctx.resume()}}
+  };
+})();
+
+/* ---------- 地図 ---------- */
+const svg=$('map');
+svg.setAttribute('viewBox',window.MAP_VIEWBOX.join(' '));
+const PREFS=window.PREFS;
+const pathEl=PREFS.map(p=>{
+  const el=document.createElementNS(NS,'path');
+  el.setAttribute('d',p.d);svg.appendChild(el);return el;
+});
+const overlay=document.createElementNS(NS,'g');svg.appendChild(overlay);
+
+function clearMap(){
+  pathEl.forEach(e=>e.setAttribute('class',''));
+  overlay.innerHTML='';
+}
+function halo(p){
+  overlay.innerHTML=
+   `<circle cx="${p.cx}" cy="${p.cy}" r="12" fill="none" stroke="#ff6a00" stroke-width="5">
+      <animate attributeName="r" from="10" to="70" dur="0.9s" repeatCount="indefinite"/>
+      <animate attributeName="opacity" from="1" to="0" dur="0.9s" repeatCount="indefinite"/></circle>`;
+}
+function redDot(p){
+  overlay.innerHTML=
+   `<circle cx="${p.cx}" cy="${p.cy}" r="14" fill="#e5251f" stroke="#fff" stroke-width="4">
+      <animate attributeName="opacity" values="1;0.1;1" dur="0.7s" repeatCount="indefinite"/></circle>
+    <circle cx="${p.cx}" cy="${p.cy}" r="14" fill="none" stroke="#e5251f" stroke-width="4">
+      <animate attributeName="r" from="14" to="55" dur="0.7s" repeatCount="indefinite"/>
+      <animate attributeName="opacity" from="0.9" to="0" dur="0.7s" repeatCount="indefinite"/></circle>`;
+}
+
+/* ---------- ゲーム ---------- */
+let score,right,wrong,deadline,tick,bag,cur,phase,locked,ended;
+
+function shuffle(a){for(let i=a.length-1;i>0;i--){const j=Math.random()*(i+1)|0;[a[i],a[j]]=[a[j],a[i]]}return a}
+function nextIndex(){
+  if(!bag.length)bag=shuffle(PREFS.map((_,i)=>i));
+  return bag.pop();
+}
+function nearby(i,n){
+  const p=PREFS[i];
+  return PREFS.map((q,j)=>({j,d:Math.hypot(q.cx-p.cx,q.cy-p.cy)}))
+    .filter(o=>o.j!==i).sort((a,b)=>a.d-b.d).slice(0,n).map(o=>o.j);
+}
+function makeChoices(i){
+  const pool=shuffle(nearby(i,9)).slice(0,3);
+  return shuffle([i,...pool]);
+}
+function setScore(){
+  $('score').textContent=(score>0?'+':'')+score;
+}
+function setTime(){
+  const left=Math.max(0,deadline-Date.now());
+  const s=Math.ceil(left/1000);
+  $('time').textContent=Math.floor(s/60)+':'+String(s%60).padStart(2,'0');
+  $('tbox').classList.toggle('low',s<=10);
+  if(left<=0)finish();
+}
+
+function askPref(){
+  phase='pref';locked=false;
+  const i=nextIndex();cur=i;
+  clearMap();
+  pathEl[i].classList.add('glow');halo(PREFS[i]);
+  $('qtext').innerHTML='光っているのは <span>どこ?</span>';
+  $('fb').textContent='';$('fb').className='';
+  render(makeChoices(i).map(j=>({label:PREFS[j].name,ok:j===i})),PREFS[i].name);
+}
+function askCap(){
+  phase='cap';locked=false;
+  const i=cur;
+  clearMap();
+  pathEl[i].classList.add('target');redDot(PREFS[i]);
+  $('qtext').innerHTML=`<span>${PREFS[i].name}</span> の県庁所在地は?`;
+  $('fb').textContent='';$('fb').className='';
+  render(makeChoices(i).map(j=>({label:capLabel(PREFS[j]),ok:j===i})),capLabel(PREFS[i]));
+}
+function render(items,answer){
+  const box=$('choices');box.innerHTML='';
+  items.forEach(it=>{
+    const b=document.createElement('button');
+    b.className='choice';b.textContent=it.label;
+    b.onclick=()=>answerTap(b,it.ok,answer);
+    box.appendChild(b);
+  });
+}
+function answerTap(btn,ok,answer){
+  if(locked||ended)return;
+  locked=true;
+  const fb=$('fb');
+  if(ok){
+    score++;right++;Sound.ok();
+    btn.classList.add('ok');fb.textContent='⭕ せいかい! +1';fb.className='ok';
+  }else{
+    score--;wrong++;Sound.ng();
+    btn.classList.add('ng');
+    [...$('choices').children].forEach(c=>{if(c.textContent===answer)c.classList.add('ok')});
+    fb.textContent='❌ 正解は「'+answer+'」 −1';fb.className='ng';
+  }
+  setScore();
+  setTimeout(()=>{
+    if(ended)return;
+    phase==='pref'?askCap():askPref();
+  },ok?650:1700);
+}
+
+function show(id){
+  document.querySelectorAll('.screen').forEach(s=>s.classList.toggle('on',s.id===id));
+}
+function start(){
+  Sound.init();Sound.bgm(true);
+  score=right=wrong=0;bag=[];ended=false;
+  setScore();
+  deadline=Date.now()+GAME_SEC*1000;
+  show('s-game');
+  setTime();
+  clearInterval(tick);tick=setInterval(setTime,100);
+  askPref();
+}
+function finish(){
+  if(ended)return;
+  ended=true;clearInterval(tick);Sound.bgm(false);
+  $('final').textContent=(score>0?'+':'')+score;
+  $('detail').textContent=`正解 ${right} 問 / まちがい ${wrong} 問`;
+  show('s-end');
+}
+
+$('start').onclick=start;
+$('retry').onclick=start;
+$('mute').onclick=()=>{
+  Sound.setMuted(!Sound.muted);
+  $('mute').textContent=Sound.muted?'🔇':'🔊';
+};
+document.addEventListener('visibilitychange',()=>Sound.suspend(document.hidden));
+})();
+</script>
+</body>
+</html>
