@@ -28,11 +28,13 @@ button{font:inherit;color:inherit}
 .box.low b{color:var(--ng)}
 #mute{flex:0 0 52px;border:0;border-radius:12px;background:var(--card);font-size:22px;box-shadow:0 2px 6px #0001}
 /* map */
-#mapwrap{flex:1;min-height:0;margin:6px 0;background:#d6ecff;border-radius:14px;overflow:hidden}
-#map{width:100%;height:100%;display:block}
-#map path{fill:var(--land);stroke:var(--line);stroke-width:2;stroke-linejoin:round}
-#map path.target{fill:#fff3a8;stroke:#e8a400;stroke-width:3}
-#map path.glow{animation:glow .7s ease-in-out infinite alternate;stroke:#ff8a00;stroke-width:4}
+#mapwrap{flex:1;min-height:0;margin:6px -10px;background:#d6ecff;overflow:hidden;position:relative}
+#map{width:100%;height:100%;display:block;touch-action:none}
+#map path{fill:var(--f,#cfe6bd);stroke:#3d4f63;stroke-width:1.2px;vector-effect:non-scaling-stroke;stroke-linejoin:round}
+#map path.target{fill:#fff3a8;stroke:#c98500;stroke-width:2.5px}
+#map path.glow{animation:glow .7s ease-in-out infinite alternate;stroke:#d96a00;stroke-width:3px}
+#zreset{position:absolute;right:8px;bottom:8px;border:0;border-radius:10px;background:#fffd;padding:6px 12px;font-size:14px;font-weight:700;box-shadow:0 1px 4px #0003;display:none}
+#hint{position:absolute;left:8px;bottom:8px;font-size:11px;color:#456;background:#fff9;border-radius:8px;padding:2px 8px;pointer-events:none}
 @keyframes glow{from{fill:#fff3a8}to{fill:#ff9d1c}}
 /* question */
 #qtext{text-align:center;font-size:19px;font-weight:700;min-height:28px;margin-bottom:6px}
@@ -68,7 +70,7 @@ button{font:inherit;color:inherit}
       <div class="box"><small>ポイント</small><b id="score">0</b></div>
       <button id="mute" aria-label="音の切り替え">🔊</button>
     </div>
-    <div id="mapwrap"><svg id="map" xmlns="http://www.w3.org/2000/svg"></svg></div>
+    <div id="mapwrap"><svg id="map" xmlns="http://www.w3.org/2000/svg"></svg><div id="hint">ピンチで拡大・ドラッグで移動</div><button id="zreset">全体表示</button></div>
     <div id="qtext"></div>
     <div id="choices"></div>
     <div id="fb"></div>
@@ -92,25 +94,39 @@ const capLabel=p=>p.cap==='新宿区'?'東京(新宿区)':p.cap;
 
 /* ---------- 音(WebAudio で合成) ---------- */
 const Sound=(()=>{
-  let ctx,master,muted=false,timer=null,next=0,step=0;
-  const MEL=[72,76,79,76,74,76,72,0, 74,79,81,79,76,74,72,0, 79,81,79,76,74,76,74,72, 76,74,72,74,76,79,76,0];
-  const BAS=[48,0,0,0,43,0,0,0, 45,0,0,0,40,0,0,0, 48,0,0,0,43,0,0,0, 43,0,0,0,48,0,0,0];
-  const STEP=0.2;
+  let ctx,master,noiseBuf,muted=false,timer=null,next=0,step=0;
+  // ポップ調: C - G - Am - F、128BPM、4つ打ち+裏ハット+クラップ
+  const LEAD=[84,0,79,84,86,84,79,0, 83,0,79,83,86,83,79,0, 84,0,81,84,88,84,81,0, 81,84,89,84,81,77,81,0];
+  const CHORD=[[60,64,67],[59,62,67],[60,64,69],[60,65,69]];
+  const ROOT=[48,43,45,41];
+  const STEP=60/128/2,LEN=32;
   const hz=m=>440*Math.pow(2,(m-69)/12);
   function tone(t,f,dur,type,vol,f2){
     const o=ctx.createOscillator(),g=ctx.createGain();
     o.type=type;o.frequency.setValueAtTime(f,t);
     if(f2)o.frequency.exponentialRampToValueAtTime(f2,t+dur);
     g.gain.setValueAtTime(0.0001,t);
-    g.gain.exponentialRampToValueAtTime(vol,t+0.015);
+    g.gain.exponentialRampToValueAtTime(vol,t+0.012);
     g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
     o.connect(g);g.connect(master);o.start(t);o.stop(t+dur+0.02);
   }
+  function noise(t,dur,vol,hp){
+    const n=ctx.createBufferSource(),f=ctx.createBiquadFilter(),g=ctx.createGain();
+    n.buffer=noiseBuf;f.type='highpass';f.frequency.value=hp;
+    g.gain.setValueAtTime(vol,t);g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+    n.connect(f);f.connect(g);g.connect(master);n.start(t);n.stop(t+dur+0.02);
+  }
   function sched(){
     while(next<ctx.currentTime+0.4){
-      const i=step%MEL.length;
-      if(MEL[i])tone(next,hz(MEL[i]),STEP*1.6,'triangle',0.16);
-      if(BAS[i])tone(next,hz(BAS[i]),STEP*3.6,'sine',0.22);
+      const i=step%LEN,bar=(i>>3)&3,k=i&7;
+      if(k%2===0)tone(next,150,0.16,'sine',0.55,45);                       // キック
+      if(k===2||k===6){noise(next,0.14,0.22,1500);tone(next,200,0.08,'triangle',0.12)} // クラップ
+      if(k%2===1)noise(next,0.05,0.09,7000);                                // ハイハット
+      if(k===0||k===3||k===4||k===6){                                       // ベース
+        tone(next,hz(ROOT[bar]+(k===6?12:0)),STEP*1.4,'sawtooth',0.14);
+      }
+      if(k===0||k===3||k===6)CHORD[bar].forEach(m=>tone(next,hz(m),STEP*1.2,'square',0.035)); // コード
+      if(LEAD[i]){tone(next,hz(LEAD[i]),STEP*1.5,'square',0.06);tone(next,hz(LEAD[i]-12),STEP*1.5,'triangle',0.08)}
       next+=STEP;step++;
     }
   }
@@ -119,7 +135,10 @@ const Sound=(()=>{
       if(!ctx){
         const AC=window.AudioContext||window.webkitAudioContext;
         if(!AC)return;
-        ctx=new AC();master=ctx.createGain();master.gain.value=muted?0:0.5;master.connect(ctx.destination);
+        ctx=new AC();
+        noiseBuf=ctx.createBuffer(1,ctx.sampleRate*0.5,ctx.sampleRate);
+        const d=noiseBuf.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;
+        master=ctx.createGain();master.gain.value=muted?0:0.5;master.connect(ctx.destination);
       }
       if(ctx.state==='suspended')ctx.resume();
     },
@@ -138,13 +157,71 @@ const Sound=(()=>{
 
 /* ---------- 地図 ---------- */
 const svg=$('map');
-svg.setAttribute('viewBox',window.MAP_VIEWBOX.join(' '));
 const PREFS=window.PREFS;
+const REGION_COLORS=['#b3e5fc','#c8e6c9','#e1bee7','#f8bbd0','#b2dfdb','#d7ccc8','#c5cae9','#dcedc8'];
+const regionOf=i=>i===0?0:i<=6?1:i<=13?2:i<=22?3:i<=29?4:i<=34?5:i<=38?6:7;
 const pathEl=PREFS.map(p=>{
   const el=document.createElementNS(NS,'path');
-  el.setAttribute('d',p.d);svg.appendChild(el);return el;
+  el.setAttribute('d',p.d);
+  el.style.setProperty('--f',REGION_COLORS[regionOf(PREFS.indexOf(p))]);
+  svg.appendChild(el);return el;
 });
 const overlay=document.createElementNS(NS,'g');svg.appendChild(overlay);
+
+/* ピンチ拡大・ドラッグ移動 */
+const BASE=window.MAP_VIEWBOX; // [x,y,w,h]
+const view={cx:BASE[0]+BASE[2]/2,cy:BASE[1]+BASE[3]/2,z:1};
+const ptrs=new Map();
+let rect=null;
+function s0(){return Math.max(BASE[2]/rect.width,BASE[3]/rect.height)}
+function applyView(){
+  rect=svg.getBoundingClientRect();
+  if(!rect.width)return;
+  const s=s0()/view.z,w=rect.width*s,h=rect.height*s;
+  const bx=BASE[0]+BASE[2]/2,by=BASE[1]+BASE[3]/2;
+  const mx=Math.max(0,(BASE[2]-w)/2+BASE[2]*0.1),my=Math.max(0,(BASE[3]-h)/2+BASE[3]*0.1);
+  view.cx=Math.min(bx+mx,Math.max(bx-mx,view.cx));
+  view.cy=Math.min(by+my,Math.max(by-my,view.cy));
+  svg.setAttribute('viewBox',`${view.cx-w/2} ${view.cy-h/2} ${w} ${h}`);
+  $('zreset').style.display=view.z>1.02?'block':'none';
+}
+function resetView(){view.cx=BASE[0]+BASE[2]/2;view.cy=BASE[1]+BASE[3]/2;view.z=1;applyView()}
+function zoomAt(px,py,nz,dx,dy){ // px,py: 画面座標(svg左上基準)で固定する点
+  const s=s0()/view.z;
+  const ox=px-rect.width/2,oy=py-rect.height/2;
+  const Px=view.cx+ox*s,Py=view.cy+oy*s;
+  view.z=Math.min(8,Math.max(1,nz));
+  const s2=s0()/view.z;
+  view.cx=Px-(ox+dx)*s2;view.cy=Py-(oy+dy)*s2;
+  applyView();
+}
+const dist=()=>{const [a,b]=[...ptrs.values()];return Math.hypot(a.x-b.x,a.y-b.y)};
+const mid=()=>{const [a,b]=[...ptrs.values()];return{x:(a.x+b.x)/2,y:(a.y+b.y)/2}};
+svg.addEventListener('pointerdown',e=>{
+  svg.setPointerCapture(e.pointerId);rect=svg.getBoundingClientRect();
+  ptrs.set(e.pointerId,{x:e.clientX-rect.left,y:e.clientY-rect.top});
+});
+svg.addEventListener('pointermove',e=>{
+  if(!ptrs.has(e.pointerId))return;
+  const px=e.clientX-rect.left,py=e.clientY-rect.top;
+  if(ptrs.size===1){
+    const o=ptrs.get(e.pointerId),s=s0()/view.z;
+    view.cx-=(px-o.x)*s;view.cy-=(py-o.y)*s;
+    ptrs.set(e.pointerId,{x:px,y:py});applyView();
+  }else if(ptrs.size===2){
+    const d0=dist(),m0=mid();
+    ptrs.set(e.pointerId,{x:px,y:py});
+    const d1=dist(),m1=mid();
+    zoomAt(m0.x,m0.y,view.z*(d1/d0),m1.x-m0.x,m1.y-m0.y);
+  }
+});
+['pointerup','pointercancel'].forEach(t=>svg.addEventListener(t,e=>ptrs.delete(e.pointerId)));
+svg.addEventListener('wheel',e=>{
+  e.preventDefault();rect=svg.getBoundingClientRect();
+  zoomAt(e.clientX-rect.left,e.clientY-rect.top,view.z*(e.deltaY<0?1.2:1/1.2),0,0);
+},{passive:false});
+$('zreset').onclick=resetView;
+window.addEventListener('resize',applyView);
 
 function clearMap(){
   pathEl.forEach(e=>e.setAttribute('class',''));
@@ -249,6 +326,7 @@ function start(){
   setScore();
   deadline=Date.now()+GAME_SEC*1000;
   show('s-game');
+  resetView();
   setTime();
   clearInterval(tick);tick=setInterval(setTime,100);
   askPref();
