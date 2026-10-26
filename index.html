@@ -40,7 +40,7 @@ button{font:inherit;color:inherit}
 #qtext{text-align:center;font-size:19px;font-weight:700;min-height:28px;margin-bottom:6px}
 #qtext span{color:var(--accent)}
 #choices{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-.choice{border:0;border-radius:14px;background:var(--card);font-size:20px;font-weight:700;min-height:58px;padding:6px;box-shadow:0 3px 0 #b8c6d3}
+.choice{border:0;border-radius:14px;background:var(--card);font-size:20px;font-weight:700;min-height:50px;padding:6px;box-shadow:0 3px 0 #b8c6d3}
 .choice:active{transform:translateY(2px);box-shadow:0 1px 0 #b8c6d3}
 .choice.ok{background:var(--ok);color:#fff}
 .choice.ng{background:var(--ng);color:#fff}
@@ -55,8 +55,8 @@ button{font:inherit;color:inherit}
   <section id="s-start" class="screen center on">
     <h1>🗾 都道府県クイズ<br>2分チャレンジ</h1>
     <div class="rules">
-      ① 光った都道府県を4択で当てる<br>
-      ② つづけて、その県庁所在地を4択で当てる<br>
+      ① 光った都道府県を6択で当てる<br>
+      ② つづけて、その県庁所在地を6択で当てる<br>　(都道府県をまちがえたらスキップ)<br>
       ・正解 <b>+1</b> / まちがい <b>−1</b><br>
       ・制限時間は <b>2分</b>
     </div>
@@ -256,7 +256,7 @@ function nearby(i,n){
     .filter(o=>o.j!==i).sort((a,b)=>a.d-b.d).slice(0,n).map(o=>o.j);
 }
 function makeChoices(i){
-  const pool=shuffle(nearby(i,9)).slice(0,3);
+  const pool=shuffle(nearby(i,12)).slice(0,5);
   return shuffle([i,...pool]);
 }
 function setScore(){
@@ -313,7 +313,7 @@ function answerTap(btn,ok,answer){
   setScore();
   setTimeout(()=>{
     if(ended)return;
-    phase==='pref'?askCap():askPref();
+    phase==='pref'&&ok?askCap():askPref();
   },ok?650:1700);
 }
 
