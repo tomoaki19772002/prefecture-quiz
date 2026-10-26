@@ -44,6 +44,18 @@ button{font:inherit;color:inherit}
 .choice:active{transform:translateY(2px);box-shadow:0 1px 0 #b8c6d3}
 .choice.ok{background:var(--ok);color:#fff}
 .choice.ng{background:var(--ng);color:#fff}
+#entry{display:none;background:var(--card);border-radius:14px;padding:12px;box-shadow:0 2px 8px #0001;gap:8px;flex-direction:column;align-items:center}
+#entry.on{display:flex}
+#entry b{color:var(--ng)}
+#entry div{display:flex;gap:8px}
+#entry input{font:inherit;font-size:18px;width:11em;padding:8px;border:2px solid #b8c6d3;border-radius:10px;text-align:center}
+#entry .btn{font-size:16px;padding:8px 18px}
+.rank{background:var(--card);border-radius:14px;padding:10px 18px;min-width:230px;box-shadow:0 2px 8px #0001;text-align:left}
+.rank h2{margin:0 0 4px;font-size:16px;text-align:center}
+.rank ol{margin:0;padding:0;list-style:none;font-size:17px}
+.rank li{display:flex;gap:8px;padding:2px 0}
+.rank li span:nth-child(2){flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rank li.me{color:var(--accent);font-weight:800}
 #fb{text-align:center;font-weight:800;font-size:18px;height:26px;margin-top:6px}
 #fb.ok{color:var(--ok)}
 #fb.ng{color:var(--ng)}
@@ -60,6 +72,7 @@ button{font:inherit;color:inherit}
       ・正解 <b>+1</b> / まちがい <b>−1</b><br>
       ・制限時間は <b>2分</b>
     </div>
+    <div class="rank" id="rank-start"></div>
     <button class="btn" id="start">スタート</button>
     <small>🔊 音が出ます(マナーモードを確認してね)</small>
   </section>
@@ -81,6 +94,8 @@ button{font:inherit;color:inherit}
     <div>2分間のポイント</div>
     <div class="big" id="final">0</div>
     <div id="detail"></div>
+    <div id="entry"><b>🎉 TOP3 にランクイン!</b><div><input id="name" maxlength="8" placeholder="なまえ(8文字まで)"><button class="btn" id="save">登録</button></div></div>
+    <div class="rank" id="rank-end"></div>
     <button class="btn" id="retry">もう一度</button>
   </section>
 
@@ -154,6 +169,32 @@ const Sound=(()=>{
     suspend(s){if(ctx){s?ctx.suspend():ctx.resume()}}
   };
 })();
+
+/* ---------- ハイスコア(この端末のブラウザに保存) ---------- */
+const KEY='pq-top3',NAMEKEY='pq-name';
+const store={
+  get(k,d){try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}catch(e){return d}},
+  set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}
+};
+const getRank=()=>store.get(KEY,[]);
+function qualifies(sc){const r=getRank();return sc>0&&(r.length<3||sc>r[r.length-1].score)}
+function addRank(name,sc){
+  const r=getRank();
+  const entry={name,score:sc,t:Date.now()};
+  r.push(entry);
+  r.sort((a,b)=>b.score-a.score||a.t-b.t);
+  store.set(KEY,r.slice(0,3));
+  return entry.t;
+}
+function renderRank(el,mineT){
+  const r=getRank();
+  const medals=['🥇','🥈','🥉'];
+  el.innerHTML='<h2>🏆 ハイスコア TOP3</h2><ol>'+
+    [0,1,2].map(i=>r[i]
+      ?`<li class="${r[i].t===mineT?'me':''}"><span>${medals[i]}</span><span>${esc(r[i].name)}</span><span>${r[i].score}点</span></li>`
+      :`<li><span>${medals[i]}</span><span>---</span><span></span></li>`).join('')+'</ol>';
+}
+const esc=t=>t.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
 /* ---------- 地図 ---------- */
 const svg=$('map');
@@ -336,10 +377,23 @@ function finish(){
   ended=true;clearInterval(tick);Sound.bgm(false);
   $('final').textContent=(score>0?'+':'')+score;
   $('detail').textContent=`正解 ${right} 問 / まちがい ${wrong} 問`;
+  $('entry').classList.toggle('on',qualifies(score));
+  $('name').value=store.get(NAMEKEY,'');
+  renderRank($('rank-end'));
   show('s-end');
+}
+function saveName(){
+  const name=($('name').value.trim()||'ななし').slice(0,8);
+  store.set(NAMEKEY,name);
+  const t=addRank(name,score);
+  $('entry').classList.remove('on');
+  renderRank($('rank-end'),t);renderRank($('rank-start'),t);
 }
 
 $('start').onclick=start;
+$('save').onclick=saveName;
+$('name').addEventListener('keydown',e=>{if(e.key==='Enter')saveName()});
+renderRank($('rank-start'));
 $('retry').onclick=start;
 $('mute').onclick=()=>{
   Sound.setMuted(!Sound.muted);

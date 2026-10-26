@@ -9,3 +9,4 @@
 ## 地図データ
 
 [dataofjapan/land](https://github.com/dataofjapan/land) の都道府県GeoJSONを簡略化して `map-data.js` にしています(沖縄は左上に移動して表示)。
+- ハイスコアTOP3はブラウザ(localStorage)に保存されるため、端末ごとの記録です
